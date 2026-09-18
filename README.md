@@ -72,8 +72,7 @@ leaving nothing to compare. A weaker model keeps the set discriminative.
 ## Results
 
 Single-run ablation, 62 tasks, `claude-haiku-4-5`, n=1 for three configs and
-n=3 for the two headline configs. Per-type scores shown where n=1 is
-informative; the per-run variance section below is the more honest read.
+n=3 for the two headline configs. Per-type scores shown for one representative config; the per-run variance section below is the more honest read.
 
 | Config | Success | Lookup | Multi-hop | Comparative | Unanswerable | Steps | Budget&nbsp;exhausted | $/solved |
 |---|---|---|---|---|---|---|---|---|
