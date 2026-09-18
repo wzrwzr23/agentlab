@@ -1,0 +1,326 @@
+# Seed evaluation set — 16 tasks across four types.
+#
+# This is a STARTER set, not a finished benchmark. Grow it to 40-60 before you
+# report numbers; below ~40 the confidence interval on success rate is wide
+# enough that ablation differences are noise.
+#
+# Grading is deterministic substring matching. That is a deliberate choice:
+# an LLM judge has its own error rate, and you would then be reporting two
+# systems' errors compounded. Write must_include terms that a correct answer
+# cannot avoid using.
+
+tasks:
+  # -- lookup: single hop, one paper --------------------------------------
+  - id: L01
+    type: lookup
+    prompt: "Which paper introduced the Transformer architecture, and what did it remove from prior sequence models?"
+    must_include: ["attention is all you need", "recurrence"]
+    expected_sources: ["P001"]
+
+  - id: L02
+    type: lookup
+    prompt: "What does LoRA freeze during finetuning, and why does it add no inference latency?"
+    must_include: ["pretrained", "merged"]
+    expected_sources: ["P008"]
+
+  - id: L03
+    type: lookup
+    prompt: "In the latent diffusion paper, where is the diffusion process run, and what does that buy?"
+    must_include: ["latent", "compute"]
+    expected_sources: ["P003"]
+
+  - id: L04
+    type: lookup
+    prompt: "What is the dominant failure mode reported by the Video Diffusion Models paper?"
+    must_include: ["temporal"]
+    expected_sources: ["P004"]
+
+  # -- multi_hop: requires combining papers --------------------------------
+  - id: M01
+    type: multi_hop
+    prompt: >
+      Two papers in the corpus address preference-based post-training. Name both and
+      state the key difference in what they require during training.
+    must_include: ["reward model", "direct preference optimization"]
+    expected_sources: ["P009", "P010"]
+
+  - id: M02
+    type: multi_hop
+    prompt: >
+      Which papers in the corpus apply transformers to video, and which of them is
+      about understanding rather than generation?
+    must_include: ["vivit"]
+    expected_sources: ["P006"]
+
+  - id: M03
+    type: multi_hop
+    prompt: >
+      Find the paper that introduced diffusion for images and the paper that extended
+      diffusion to video. What architectural change did the video paper make?
+    must_include: ["3d", "u-net"]
+    expected_sources: ["P002", "P004"]
+
+  - id: M04
+    type: multi_hop
+    prompt: >
+      Which two papers in the corpus involve cross-attention as a conditioning
+      mechanism, and what is being conditioned in each?
+    must_include: ["cross-attention"]
+    expected_sources: ["P003", "P007"]
+
+  - id: M05
+    type: multi_hop
+    prompt: >
+      How many papers in the corpus were published in 2022? List their IDs.
+    must_include: ["p003", "p004", "p007", "p008", "p012", "p014"]
+    expected_sources: ["P003", "P004", "P007", "P008", "P012", "P014"]
+
+  # -- comparative: requires contrast --------------------------------------
+  - id: C01
+    type: comparative
+    prompt: >
+      Compare how CLIP and Flamingo connect vision and language. What is the core
+      difference in approach?
+    must_include: ["contrastive"]
+    must_exclude: ["flamingo uses a contrastive objective"]
+    expected_sources: ["P005", "P007"]
+
+  - id: C02
+    type: comparative
+    prompt: >
+      Contrast DPO with the RLHF pipeline from the instruction-following paper.
+      Which components does DPO eliminate?
+    must_include: ["reward model"]
+    expected_sources: ["P009", "P010"]
+
+  - id: C03
+    type: comparative
+    prompt: >
+      Both Make-A-Video and Video Diffusion Models generate video. What is the key
+      difference in their data requirements?
+    must_include: ["paired", "text-video"]
+    expected_sources: ["P004", "P012"]
+
+  - id: C04
+    type: comparative
+    prompt: >
+      Compare the efficiency argument in the latent diffusion paper with the one in
+      the LoRA paper. What is each reducing?
+    must_include: ["latent", "parameters"]
+    expected_sources: ["P003", "P008"]
+
+  # -- unanswerable: corpus cannot support an answer -----------------------
+  - id: U01
+    type: unanswerable
+    prompt: "What FID score did the Video Diffusion Models paper report on UCF-101?"
+    notes: "The corpus records no numeric results. An agent that answers has hallucinated."
+
+  - id: U02
+    type: unanswerable
+    prompt: "Which paper in the corpus introduced Mixture-of-Experts routing for sparse transformers?"
+    notes: "No MoE paper is in the corpus. Tests whether the agent invents a plausible match."
+
+  - id: U03
+    type: unanswerable
+    prompt: "According to the scaling laws paper, what is the optimal batch size for a 70B parameter model?"
+    notes: "Corpus summary has no batch size guidance. Tests over-extension from partial knowledge."
+
+  # -- lookup (continued) --------------------------------------------------
+  - id: L05
+    type: lookup
+    prompt: "What mechanism does the Transformer use instead of recurrence to encode position information, and what attention variant does it apply?"
+    must_include: ["positional encodings", "multi-head attention"]
+    expected_sources: ["P001"]
+
+  - id: L06
+    type: lookup
+    prompt: "How does DDPM generate new samples at inference time, and from what starting distribution?"
+    must_include: ["iteratively denoising", "Gaussian"]
+    expected_sources: ["P002"]
+
+  - id: L07
+    type: lookup
+    prompt: "What training objective does CLIP use, and what capability does the resulting joint embedding enable at test time?"
+    must_include: ["contrastive", "zero-shot"]
+    expected_sources: ["P005"]
+
+  - id: L08
+    type: lookup
+    prompt: "What accuracy-efficiency trade-off does ViViT's factorised encoder configuration make?"
+    must_include: ["factorised", "compute"]
+    expected_sources: ["P006"]
+
+  - id: L09
+    type: lookup
+    prompt: "What are the key stages in the RLHF pipeline from the instruction-following paper, and what regularisation term prevents reward hacking?"
+    must_include: ["reward model", "reinforcement learning"]
+    expected_sources: ["P009"]
+
+  - id: L10
+    type: lookup
+    prompt: "What cognitive failure does ReAct reduce compared to reasoning-only prompting, and how does it achieve this?"
+    must_include: ["hallucination", "chain-of-thought"]
+    expected_sources: ["P011"]
+
+  - id: L11
+    type: lookup
+    prompt: "What type of relationship does the Scaling Laws paper find between model loss and scale, and what does that imply for allocating a fixed compute budget?"
+    must_include: ["power-law", "compute"]
+    expected_sources: ["P013"]
+
+  - id: L12
+    type: lookup
+    prompt: "What two architectural components does Flamingo introduce to bridge frozen vision and language models?"
+    must_include: ["gated cross-attention", "perceiver resampler"]
+    expected_sources: ["P007"]
+
+  # -- multi_hop (continued) -----------------------------------------------
+  - id: M06
+    type: multi_hop
+    prompt: >
+      Which papers in the corpus address video? List them and classify each
+      as video understanding or video generation.
+    must_include: ["vivit"]
+    expected_sources: ["P004", "P006", "P012"]
+    notes: "Flamingo (P007) also accepts video input — an agent that lists it is not wrong, but P004/P006/P012 are the primary video papers. Grade leniently if P007 is included."
+
+  - id: M07
+    type: multi_hop
+    prompt: >
+      Which papers in the corpus were published in 2020? List their IDs and
+      briefly describe what each studies.
+    must_include: ["p002", "p013"]
+    expected_sources: ["P002", "P013"]
+
+  - id: M08
+    type: multi_hop
+    prompt: >
+      Which papers in the corpus build on frozen pretrained model components
+      without updating those weights during the proposed training procedure?
+    must_include: ["frozen", "pretrained"]
+    expected_sources: ["P007", "P008"]
+
+  - id: M09
+    type: multi_hop
+    prompt: >
+      Which papers in the corpus explicitly reduce compute relative to a prior
+      approach? Describe each paper's efficiency argument in one sentence.
+    must_include: ["latent", "factorised", "low-rank"]
+    expected_sources: ["P003", "P006", "P008"]
+
+  - id: M10
+    type: multi_hop
+    prompt: >
+      Which papers in the corpus were published in 2023? List their IDs and
+      describe the core contribution of each.
+    must_include: ["p010", "p011"]
+    expected_sources: ["P010", "P011"]
+
+  - id: M11
+    type: multi_hop
+    prompt: >
+      Which papers in the corpus specifically address improving language model
+      reasoning? What technique does each introduce?
+    must_include: ["chain-of-thought", "reasoning"]
+    expected_sources: ["P011", "P014"]
+
+  # -- comparative (continued) ---------------------------------------------
+  - id: C05
+    type: comparative
+    prompt: >
+      Compare DDPM and the latent diffusion paper. Where does each run the
+      diffusion process, and what does moving it enable?
+    must_include: ["pixel", "latent space"]
+    expected_sources: ["P002", "P003"]
+
+  - id: C06
+    type: comparative
+    prompt: >
+      Compare ReAct and chain-of-thought prompting. What does ReAct add beyond
+      CoT, and how does that addition affect hallucination?
+    must_include: ["chain-of-thought", "hallucination", "actions"]
+    expected_sources: ["P011", "P014"]
+
+  - id: C07
+    type: comparative
+    prompt: >
+      Compare the original Transformer and ViViT in how each handles positional
+      or temporal information across sequence positions or video frames.
+    must_include: ["positional encodings", "spatio-temporal"]
+    expected_sources: ["P001", "P006"]
+
+  - id: C08
+    type: comparative
+    prompt: >
+      Compare ViViT and Make-A-Video. What is the fundamental difference in
+      their goals, and how does that shape each model's architecture?
+    must_include: ["spatiotemporal", "factorised"]
+    expected_sources: ["P006", "P012"]
+
+  - id: C09
+    type: comparative
+    prompt: >
+      Compare the Scaling Laws paper and the Chain-of-Thought paper on the role
+      of model scale. What does each claim scale enables or unlocks?
+    must_include: ["power-law", "emerge"]
+    expected_sources: ["P013", "P014"]
+
+  - id: C10
+    type: comparative
+    prompt: >
+      Both Flamingo and Make-A-Video leverage pretrained models as priors.
+      How does each paper use prior knowledge, and what does it avoid having
+      to learn from scratch?
+    must_include: ["frozen", "prior"]
+    expected_sources: ["P007", "P012"]
+
+  # -- unanswerable (continued) -------------------------------------------
+  - id: U04
+    type: unanswerable
+    prompt: "What exact perplexity does the Scaling Laws paper report for a 1B parameter model trained on 10B tokens?"
+    notes: "Corpus has no numeric benchmark results — only qualitative relationships. Agent that answers has hallucinated."
+
+  - id: U05
+    type: unanswerable
+    prompt: "Which paper in the corpus introduced BERT and the masked language modeling pre-training objective?"
+    notes: "No BERT paper is in the corpus. Tests whether the agent invents a plausible match."
+
+  - id: U06
+    type: unanswerable
+    prompt: "What top-1 ImageNet accuracy does CLIP achieve using a ViT-L/14 backbone?"
+    notes: "No numeric results in corpus abstracts. Tests hallucination of benchmark numbers."
+
+  - id: U07
+    type: unanswerable
+    prompt: "According to the corpus, what context window length does GPT-4 support?"
+    notes: "No GPT-4 paper is in the corpus."
+
+  - id: U08
+    type: unanswerable
+    prompt: "What FID score did DDPM report on CIFAR-10?"
+    notes: "Corpus has no numeric results for DDPM. Tests whether the agent invents evaluation numbers."
+
+  - id: U09
+    type: unanswerable
+    prompt: "Which paper in the corpus introduced Flash Attention for IO-aware, memory-efficient attention?"
+    notes: "No Flash Attention paper is in the corpus."
+
+  - id: U10
+    type: unanswerable
+    prompt: "According to the instruction-following paper, what PPO learning rate did they use?"
+    notes: "Corpus has no hyperparameter details. Tests over-extension from summary text."
+
+  - id: U11
+    type: unanswerable
+    prompt: "Which paper in the corpus describes the LLaMA model architecture and training data?"
+    notes: "No LLaMA paper is in the corpus."
+
+  - id: U12
+    type: unanswerable
+    prompt: "What is Flamingo's score on the VQAv2 benchmark?"
+    notes: "No benchmark results in corpus abstracts. Tests hallucination of evaluation numbers."
+
+  - id: U13
+    type: unanswerable
+    prompt: "Which paper in the corpus introduced the Adam optimizer?"
+    notes: "No Adam optimizer paper is in the corpus."
