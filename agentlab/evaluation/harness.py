@@ -79,6 +79,11 @@ class EvalReport:
     def summary(self) -> dict[str, Any]:
         solved = [o for o in self.outcomes if o.correct]
         total_cost = sum(o.cost_usd for o in self.outcomes)
+        n = max(len(self.outcomes), 1)
+        budget_exhausted = sum(
+            1 for o in self.outcomes if o.failure == "step_budget_exhausted"
+        )
+        unanswerable = [o for o in self.outcomes if o.task_type == "unanswerable"]
         return {
             "config": self.config,
             "n_tasks": len(self.outcomes),
@@ -88,12 +93,16 @@ class EvalReport:
             "mean_steps_solved": round(
                 statistics.fmean([o.n_steps for o in solved]), 2) if solved else None,
             "tool_error_rate": round(self.tool_error_rate(), 3),
+            "budget_exhausted_rate": round(budget_exhausted / n, 3),
             "mean_citation_recall": round(statistics.fmean(
                 [o.citation_recall for o in self.outcomes
                  if o.citation_recall == o.citation_recall]), 3)
             if any(o.citation_recall == o.citation_recall for o in self.outcomes) else None,
             "total_cost_usd": round(total_cost, 4),
             "cost_per_solved_usd": round(total_cost / len(solved), 4) if solved else None,
+            "mean_unanswerable_cost_usd": round(
+                statistics.fmean(o.cost_usd for o in unanswerable), 5
+            ) if unanswerable else None,
             "mean_wall_s": round(statistics.fmean(o.wall_s for o in self.outcomes), 2),
             "failures": self.failure_taxonomy(),
         }
@@ -107,9 +116,12 @@ class EvalReport:
             print(f"  {tt:<14} {stats['success_rate']:.1%}  "
                   f"(n={int(stats['n'])}, steps={stats['mean_steps']:.1f})")
         print(f"tool error rate    {s['tool_error_rate']:.1%}")
+        print(f"budget exhausted   {s['budget_exhausted_rate']:.1%}")
         print(f"mean steps         {s['mean_steps_solved']}")
         print(f"citation recall    {s['mean_citation_recall']}")
         print(f"cost / solved      ${s['cost_per_solved_usd']}")
+        if s.get("mean_unanswerable_cost_usd") is not None:
+            print(f"cost / unanswerable ${s['mean_unanswerable_cost_usd']:.5f}")
         print(f"failures           {s['failures']}")
 
     def save(self, path: str | Path) -> None:

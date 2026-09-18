@@ -16,6 +16,17 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+def _read_dotenv(name: str, path: str = ".env") -> str | None:
+    """Read one variable from .env without exporting it to the shell."""
+    try:
+        for line in open(path):
+            line = line.strip()
+            if line.startswith(f"{name}="):
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except FileNotFoundError:
+        pass
+    return None
+
 # Rough USD per million tokens. Update when pricing changes.
 PRICING = {
     "claude-sonnet-4-6": (3.00, 15.00),
@@ -66,7 +77,7 @@ class LLMClient:
         except ImportError as exc:  # pragma: no cover
             raise ImportError("pip install anthropic") from exc
 
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        api_key = os.environ.get("ANTHROPIC_API_KEY") or _read_dotenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise LLMError("ANTHROPIC_API_KEY is not set")
 
@@ -87,7 +98,6 @@ class LLMClient:
         kwargs: dict[str, Any] = {
             "model": self.model,
             "max_tokens": max_tokens,
-            "temperature": self.temperature,
             "messages": messages,
         }
         if system:

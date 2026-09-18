@@ -17,6 +17,10 @@ from typing import Any
 
 from .base import Agent, AgentResult, Step
 
+# Matches corpus paper IDs (P001 … P999) in tool output so the executor
+# prompt can warn the model against hallucinating IDs.
+_PAPER_ID_RE = re.compile(r"\bP\d{3}\b")
+
 PLANNER_SYSTEM = """You plan research over a corpus of machine learning papers.
 
 Break the task into 2-5 concrete steps. Each step must be answerable with the \
@@ -32,6 +36,12 @@ Current step: {step}
 
 Findings so far:
 {findings}
+
+Known paper IDs from this session: {known_ids}
+
+Only call fetch_paper with an ID that appeared in a search_papers or \
+list_papers result in this session. Never guess IDs from memory. When you \
+have what this step needs, stop calling tools and report.
 
 Use tools to complete this step, then state what you found in two or three \
 sentences. Ground claims in tool output. If the step cannot be completed, say \
@@ -73,20 +83,30 @@ class PlanExecuteAgent(Agent):
         )
         return steps
 
-    def _execute(self, task: str, step: str, findings: list[str],
-                 result: AgentResult, budget: int) -> tuple[str, bool]:
+    def _execute(
+        self,
+        task: str,
+        step: str,
+        findings: list[str],
+        result: AgentResult,
+        remaining: list[int],   # shared mutable budget counter
+        seen_ids: set[str],     # paper IDs observed in tool results this session
+    ) -> tuple[str, bool]:
         messages: list[dict[str, Any]] = [{"role": "user", "content": f"Execute: {step}"}]
         system = EXECUTOR_SYSTEM.format(
             task=task, step=step,
             findings="\n".join(f"- {f}" for f in findings) or "(none yet)",
+            known_ids=", ".join(sorted(seen_ids)) or "none yet",
         )
 
-        for _ in range(budget):
+        while True:
             completion = self.llm.complete(
                 messages=self._messages(messages), system=system, tools=self.tools.specs()
             )
             if not completion.tool_calls:
                 return completion.text.strip(), True
+            if remaining[0] <= 0:
+                return "step failed: budget exhausted", False
 
             assistant_content: list[dict[str, Any]] = []
             if completion.text.strip():
@@ -100,11 +120,13 @@ class PlanExecuteAgent(Agent):
 
             blocks = []
             for call in completion.tool_calls:
+                remaining[0] -= 1  # each tool call costs one unit from the shared pool
                 result.steps.append(
                     Step(len(result.steps), "tool_call", "",
                          tool_name=call["name"], tool_args=call["input"])
                 )
                 tr = self.tools.call(call["name"], call["input"])
+                seen_ids.update(_PAPER_ID_RE.findall(tr.to_model()))
                 result.steps.append(
                     Step(len(result.steps), "tool_result", tr.to_model(),
                          tool_name=call["name"], ok=tr.ok, latency_s=tr.latency_s)
@@ -118,24 +140,38 @@ class PlanExecuteAgent(Agent):
             if self._consecutive_tool_errors(result):
                 return "step failed: repeated tool errors", False
 
-        return "step failed: budget exhausted", False
-
     def _run(self, task: str, result: AgentResult) -> str:
         findings: list[str] = []
+        seen_ids: set[str] = set()
+        remaining = [self.max_steps]   # shared pool; each tool call decrements it
         replans = 0
         plan = self._plan(task, result)
 
         while True:
-            per_step = max(2, self.max_steps // max(len(plan), 1))
+            succeeded = 0
             failed_at = None
             for step in plan:
-                finding, ok = self._execute(task, step, findings, result, per_step)
+                # Enforce minimum-2 tool calls available before starting a step.
+                if remaining[0] < 2:
+                    findings.append(f"{step} -> step skipped: budget exhausted")
+                    failed_at = step
+                    break
+                finding, ok = self._execute(task, step, findings, result, remaining, seen_ids)
                 findings.append(f"{step} -> {finding}")
-                if not ok:
+                if ok:
+                    succeeded += 1
+                else:
                     failed_at = step
                     break
 
-            if failed_at is None or replans >= self.max_replans:
+            # Only replan when fewer than half the steps succeeded.  If the
+            # majority completed, go straight to synthesis with what was found.
+            should_replan = (
+                failed_at is not None
+                and succeeded < len(plan) / 2
+                and replans < self.max_replans
+            )
+            if not should_replan:
                 break
             replans += 1
             plan = self._plan(task, result, failed=failed_at)

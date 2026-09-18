@@ -52,7 +52,11 @@ class SearchPapers(Tool):
         self.corpus = _load_corpus()
         self._df = Counter()
         for paper in self.corpus:
-            for term in set(_tokenize(paper["title"] + " " + paper["abstract"])):
+            aliases_text = " ".join(paper.get("aliases", []))
+            for term in set(_tokenize(
+                paper["title"] + " " + paper["abstract"] + " "
+                + str(paper["year"]) + " " + aliases_text
+            )):
                 self._df[term] += 1
 
     def run(self, query: str, top_k: int = 5) -> str:
@@ -63,15 +67,20 @@ class SearchPapers(Tool):
         n = len(self.corpus)
         scored = []
         for paper in self.corpus:
-            terms = _tokenize(paper["title"] + " " + paper["abstract"])
+            aliases_text = " ".join(paper.get("aliases", []))
+            terms = _tokenize(
+                paper["title"] + " " + paper["abstract"] + " "
+                + str(paper["year"]) + " " + aliases_text
+            )
             tf = Counter(terms)
             # BM25-lite: idf-weighted term frequency, length-normalised.
             score = sum(
                 tf[t] / (tf[t] + 1.5) * math.log(1 + (n - self._df[t] + 0.5) / (self._df[t] + 0.5))
                 for t in q_terms if t in tf
             )
-            # Title matches carry more signal than abstract matches.
-            score += 0.5 * sum(1 for t in q_terms if t in _tokenize(paper["title"]))
+            # Title and alias matches carry more signal than abstract matches.
+            title_alias_tokens = set(_tokenize(paper["title"] + " " + aliases_text))
+            score += 0.5 * sum(1 for t in q_terms if t in title_alias_tokens)
             if score > 0:
                 scored.append((score, paper))
 
@@ -140,6 +149,34 @@ class Calculate(Tool):
         return str(_eval(tree.body))
 
 
+class ListPapers(Tool):
+    name = "list_papers"
+    description = (
+        "List papers in the corpus. Returns id, title, and year for every paper. "
+        "Pass 'year' to restrict results to a specific publication year."
+    )
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "year": {
+                "type": "integer",
+                "description": "Filter by publication year (optional).",
+            },
+        },
+        "additionalProperties": False,
+    }
+
+    def __init__(self) -> None:
+        self.corpus = _load_corpus()
+
+    def run(self, year: int | None = None) -> str:
+        papers = self.corpus if year is None else [p for p in self.corpus if p["year"] == year]
+        if not papers:
+            suffix = f" for year {year}" if year is not None else ""
+            return f"No papers found{suffix}."
+        return "\n".join(f"[{p['id']}] {p['title']} ({p['year']})" for p in papers)
+
+
 def default_registry():
     from .base import ToolRegistry
-    return ToolRegistry([SearchPapers(), FetchPaper(), Calculate()])
+    return ToolRegistry([SearchPapers(), FetchPaper(), Calculate(), ListPapers()])

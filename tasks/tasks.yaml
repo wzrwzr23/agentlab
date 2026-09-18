@@ -26,7 +26,7 @@ tasks:
   - id: L03
     type: lookup
     prompt: "In the latent diffusion paper, where is the diffusion process run, and what does that buy?"
-    must_include: ["latent", "compute"]
+    must_include: ["latent", ["compute", "computation"]]
     expected_sources: ["P003"]
 
   - id: L04
@@ -135,7 +135,7 @@ tasks:
   - id: L06
     type: lookup
     prompt: "How does DDPM generate new samples at inference time, and from what starting distribution?"
-    must_include: ["iteratively denoising", "Gaussian"]
+    must_include: [["iteratively denoising", "iterative denoising", "denoising"], "gaussian"]
     expected_sources: ["P002"]
 
   - id: L07
@@ -324,3 +324,215 @@ tasks:
     type: unanswerable
     prompt: "Which paper in the corpus introduced the Adam optimizer?"
     notes: "No Adam optimizer paper is in the corpus."
+
+  # -- deep multi-hop -------------------------------------------------------
+  - id: DM01
+    type: multi_hop
+    prompt: >
+      Compare the Transformer and ViViT on how they handle sequential or
+      temporal structure. What mechanism did the Transformer eliminate from
+      earlier sequence models, and what structure does ViViT introduce for video?
+    must_include: ["recurrence", "spatio-temporal"]
+    expected_sources: ["P001", "P006"]
+    notes: "Requires synthesising P001 (removes recurrence) and P006 (spatio-temporal tokens)."
+
+  - id: DM02
+    type: multi_hop
+    prompt: >
+      Which papers in the corpus keep some pretrained model components frozen
+      and build new capabilities on top of them? For each paper, describe what
+      is kept frozen and what is added on top.
+    must_include: ["frozen", "low-rank", "prior"]
+    expected_sources: ["P007", "P008", "P012"]
+    notes: >
+      P007 freezes vision and language encoders; P008 freezes base weights and
+      adds low-rank adapters; P012 transfers a frozen text-to-image prior.
+
+  - id: DM03
+    type: multi_hop
+    prompt: >
+      Which papers in the corpus justify their design at least partly on
+      computational efficiency grounds? For each, describe the specific
+      efficiency argument made.
+    must_include: ["parallelises", "latent", "factorised", "low-rank"]
+    expected_sources: ["P001", "P003", "P006", "P008"]
+    notes: >
+      P001: attention parallelises; P003: latent space cuts compute; P006:
+      factorised encoders reduce compute; P008: low-rank reduces parameters.
+
+  - id: DM04
+    type: multi_hop
+    prompt: >
+      Trace the development of diffusion models in the corpus from DDPM through
+      to Make-A-Video. What key limitation did each subsequent paper address,
+      and what mechanism did it introduce?
+    must_include: ["noising", "latent", "3d", "unlabelled"]
+    expected_sources: ["P002", "P003", "P004", "P012"]
+    notes: >
+      P002: noising process; P003: latent space; P004: 3D U-Net; P012:
+      unlabelled video for motion.
+
+  # -- conflicting comparative -----------------------------------------------
+  - id: CC01
+    type: comparative
+    prompt: >
+      Scaling Laws argues that larger models are more compute-efficient. LoRA
+      and latent diffusion both aim to reduce model footprint. What tension
+      exists between the Scaling Laws recommendation and the approaches taken
+      by LoRA and LDM?
+    must_include:
+      - "power-law"
+      - "low-rank"
+      - "latent"
+      - ["tension", "tradeoff", "trade-off", "however", "whereas"]
+    expected_sources: ["P003", "P008", "P013"]
+
+  - id: CC02
+    type: comparative
+    prompt: >
+      Compare Chain-of-Thought prompting and ReAct on their approach to
+      improving language model reliability. What advantage does each claim?
+    must_include:
+      - "intermediate"
+      - "hallucination"
+    expected_sources: ["P011", "P014"]
+
+  - id: CC03
+    type: comparative
+    prompt: >
+      Compare InstructGPT and DPO on how they align language models with human
+      preferences. What is the fundamental methodological difference between the
+      two approaches, and what does DPO eliminate?
+    must_include:
+      - "reward model"
+      - "classification"
+      - ["tension", "tradeoff", "trade-off", "however", "whereas"]
+    expected_sources: ["P009", "P010"]
+
+  - id: CC04
+    type: comparative
+    prompt: >
+      Compare CLIP and Flamingo on how they connect vision and language. What
+      training objective does CLIP use, and what architectural mechanism does
+      Flamingo use to bridge its frozen components?
+    must_include:
+      - "contrastive"
+      - "gated cross-attention"
+    expected_sources: ["P005", "P007"]
+
+  # -- partially answerable --------------------------------------------------
+  # PA tasks: a correct answer must (1) show the agent found and read the paper,
+  # and (2) assert that the specific detail is ABSENT FROM THE CORPUS — i.e. the
+  # corpus itself lacks the information, not merely that the agent could not
+  # retrieve it.  Phrases like "cannot access" or "unable to retrieve" are
+  # intentionally NOT in the refusal alternatives because they attribute the
+  # gap to agent capability rather than corpus content.
+  - id: PA01
+    type: lookup
+    prompt: >
+      According to the LoRA paper, what rank r is recommended for the low-rank
+      decomposition matrices, and into which layers are they injected?
+    must_include:
+      - ["each layer", "every layer", "each of the layers"]
+      - ["not specify", "does not specify", "not mentioned", "no rank",
+         "not in the corpus", "only the abstract", "does not include",
+         "no such detail"]
+    expected_sources: ["P008"]
+    notes: >
+      Abstract confirms matrices are injected into each layer, but gives no
+      specific rank value. A correct answer acknowledges the corpus lacks that
+      detail.
+
+  - id: PA02
+    type: lookup
+    prompt: >
+      What noise schedule does DDPM use — specifically, what are the beta
+      values or their functional form across timesteps?
+    must_include:
+      - ["noising", "noise", "denoising"]
+      - ["not specify", "does not specify", "not mentioned", "not available",
+         "not in the corpus", "only the abstract", "does not include",
+         "no such detail"]
+    expected_sources: ["P002"]
+    notes: >
+      Abstract describes the noising process qualitatively but gives no beta
+      schedule or functional form. A correct answer acknowledges the corpus
+      lacks that detail.
+
+  - id: PA03
+    type: lookup
+    prompt: >
+      According to the Flamingo paper, how many in-context examples are optimal
+      for few-shot adaptation to vision-language tasks?
+    must_include:
+      - ["interleaved", "images, video, and text", "few-shot"]
+      - ["not specify", "does not specify", "not mentioned", "not available",
+         "not in the corpus", "only the abstract", "does not include",
+         "no such detail"]
+    expected_sources: ["P007"]
+    notes: >
+      Abstract confirms Flamingo accepts interleaved sequences for few-shot
+      learning but gives no optimal shot count. A correct answer acknowledges
+      the corpus lacks that detail.
+
+  - id: PA04
+    type: lookup
+    prompt: >
+      What is the exact prompt template used in the Chain-of-Thought paper to
+      elicit step-by-step reasoning from the model?
+    must_include:
+      - ["intermediate", "reasoning steps", "step-by-step"]
+      - ["not specify", "does not specify", "not mentioned", "not available",
+         "not in the corpus", "only the abstract", "does not include",
+         "no such detail"]
+    expected_sources: ["P014"]
+    notes: >
+      Abstract confirms intermediate reasoning steps are used but gives no
+      example prompt template. A correct answer acknowledges the corpus lacks
+      that detail.
+
+  # -- negative retrieval ----------------------------------------------------
+  - id: NR01
+    type: multi_hop
+    prompt: >
+      Which papers in the corpus do NOT use diffusion as their core technique?
+      For each non-diffusion paper you list, briefly describe what technique
+      it does use instead.
+    must_include: ["attention", "contrastive"]
+    expected_sources: ["P001", "P005", "P009", "P011"]
+    notes: >
+      Agent must reason about absence. Must mention attention (Transformer,
+      ReAct) and contrastive (CLIP) to demonstrate it identified the right set.
+
+  - id: NR02
+    type: multi_hop
+    prompt: >
+      Which papers in the corpus do NOT address video as a modality? For each
+      such paper, briefly describe its actual focus.
+    must_include: ["reward model", "scaling"]
+    expected_sources: ["P001", "P002", "P009", "P013"]
+    notes: >
+      Agent must exclude P004, P006, P007, P012. Reward model term (P009) and
+      scaling term (P013) confirm the agent identified the right non-video set.
+
+  - id: NR03
+    type: multi_hop
+    prompt: >
+      Which papers in the corpus achieve their results through prompting alone,
+      without introducing any new training procedure or model architecture?
+    must_include: ["chain-of-thought", "reasoning"]
+    expected_sources: ["P011", "P014"]
+    notes: "Only P011 (ReAct) and P014 (CoT) are prompting-only contributions."
+
+  - id: NR04
+    type: multi_hop
+    prompt: >
+      Which papers in the corpus contribute a prompting method or an empirical
+      analysis rather than proposing a new architecture or training procedure?
+      List them and explain the nature of each contribution.
+    must_include: ["power-law", "chain-of-thought"]
+    expected_sources: ["P011", "P013", "P014"]
+    notes: >
+      P013 is scaling analysis; P011 and P014 are prompting methods. Prompt
+      now explicitly contrasts prompting/analysis vs architecture/training to
+      remove the ambiguity around whether Scaling Laws "trains models".

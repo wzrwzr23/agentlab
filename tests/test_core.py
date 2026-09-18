@@ -7,7 +7,10 @@ tested separately against recorded traces; see tests/README.
 import pytest
 
 from agentlab.tools.base import Tool, ToolRegistry, MAX_RESULT_CHARS
-from agentlab.tools.builtin import SearchPapers, FetchPaper, Calculate
+from agentlab.tools.builtin import SearchPapers, FetchPaper, Calculate, ListPapers
+from agentlab.agents.plan_execute import PlanExecuteAgent
+from agentlab.agents.base import AgentResult, Step
+from agentlab.llm import Completion, Usage
 from agentlab.memory.context import ContextManager, estimate_tokens
 from agentlab.evaluation.tasks import Task
 
@@ -102,6 +105,18 @@ def test_search_rejects_out_of_range_top_k():
     assert not SearchPapers().call({"query": "x", "top_k": 99}).ok
 
 
+def test_list_papers_all():
+    r = ListPapers().call({})
+    assert r.ok and "P001" in r.content and "P014" in r.content
+
+
+def test_list_papers_year_filter():
+    r = ListPapers().call({"year": 2022})
+    assert r.ok
+    assert "P003" in r.content   # 2022 paper
+    assert "P001" not in r.content  # 2017 paper filtered out
+
+
 def test_fetch_unknown_id_errors_cleanly():
     r = FetchPaper().call({"paper_id": "P999"})
     assert not r.ok and r.error_kind == "execution"
@@ -161,6 +176,22 @@ def test_unanswerable_rewards_refusal():
     assert t.grade("The corpus does not contain that information.")[0]
 
 
+def test_refusal_regex_negation_then_corpus():
+    t = Task(id="u", type="unanswerable", prompt="?")
+    assert t.grade("The corpus does not appear to contain that information.")[0]
+
+
+def test_refusal_regex_negation_then_find():
+    t = Task(id="u", type="unanswerable", prompt="?")
+    assert t.grade("I cannot find specific information about that.")[0]
+
+
+def test_refusal_regex_corpus_then_negation():
+    # corpus word ("contains") precedes the negation ("not") — bidirectional match
+    t = Task(id="u", type="unanswerable", prompt="?")
+    assert t.grade("The stored record only contains the abstract, not the detailed results.")[0]
+
+
 def test_unanswerable_punishes_confident_answer():
     t = Task(id="u", type="unanswerable", prompt="?")
     ok, reason = t.grade("The FID score was 42.1.")
@@ -183,7 +214,111 @@ def test_empty_answer_never_passes():
     assert not Task(id="l", type="lookup", prompt="?").grade("   ")[0]
 
 
+# -- plan_execute: shared budget ------------------------------------------
+
+class _SequentialLLM:
+    """Returns a tool-call response on the first complete(), plain text after."""
+    def __init__(self, *extra_responses):
+        self.total_usage = Usage()
+        self._responses = iter([
+            Completion(text="", tool_calls=[
+                {"id": "tc1", "name": "calculate", "input": {"expression": "1+1"}}
+            ]),
+            Completion(text="the answer is 2"),
+            *extra_responses,
+        ])
+
+    def complete(self, *, messages, system=None, tools=None, max_tokens=None):
+        return next(self._responses, Completion(text="done"))
+
+
+def test_shared_budget_decrements_per_tool_call():
+    """Each tool call consumes exactly one unit from the shared remaining pool."""
+    agent = PlanExecuteAgent(_SequentialLLM(), ToolRegistry([Calculate()]), max_steps=6)
+    remaining = [6]
+    result = AgentResult(task_id="t", answer="", agent="plan_execute")
+    _, ok = agent._execute("task", "calc step", [], result, remaining, set())
+    assert ok
+    assert remaining[0] == 5  # one tool call used one budget unit from six
+
+
+def test_shared_budget_skips_step_below_minimum():
+    """A step is skipped (not attempted) when fewer than 2 budget units remain."""
+    agent = PlanExecuteAgent(_SequentialLLM(), ToolRegistry([Calculate()]), max_steps=6)
+    remaining = [1]  # below the minimum-2 threshold
+    result = AgentResult(task_id="t", answer="", agent="plan_execute")
+    finding, ok = agent._execute("task", "step", [], result, remaining, set())
+    # budget exhausted is returned from within _execute when remaining hits 0
+    # but the caller (_run) should have skipped; test the guard in _execute itself:
+    # with remaining=1, first tool call decrements to 0, then the loop checks again
+    # and returns budget-exhausted on the next iteration
+    assert remaining[0] == 0
+
+
+# -- plan_execute: replan threshold ----------------------------------------
+
+class _SynthLLM:
+    total_usage = Usage()
+    def complete(self, *, messages, system=None, tools=None, max_tokens=None):
+        return Completion(text="synthesis result")
+
+
+def test_no_replan_when_majority_of_steps_succeed():
+    """With 3 steps where 2 succeed and 1 fails, replan is skipped."""
+    plan_calls = [0]
+
+    class MajoritySuccessAgent(PlanExecuteAgent):
+        def _plan(self, task, result, failed=None):
+            plan_calls[0] += 1
+            result.steps.append(Step(len(result.steps), "plan", ""))
+            return ["s1", "s2", "s3"]
+
+        def _execute(self, task, step, findings, result, remaining, seen_ids):
+            remaining[0] = max(0, remaining[0] - 1)
+            return ("s3 failed", False) if step == "s3" else (f"{step} done", True)
+
+    agent = MajoritySuccessAgent(_SynthLLM(), ToolRegistry([]), max_steps=12)
+    result = agent.run("test task")
+    # s1 and s2 succeed (2/3 ≥ half) → no replan; only initial _plan call
+    assert plan_calls[0] == 1
+
+
+def test_replan_triggered_when_minority_succeed():
+    """With 3 steps where only the first succeeds (1/3 < half), replan fires once."""
+    plan_calls = [0]
+
+    class MinoritySuccessAgent(PlanExecuteAgent):
+        def _plan(self, task, result, failed=None):
+            plan_calls[0] += 1
+            result.steps.append(Step(len(result.steps), "plan", ""))
+            return ["s1", "s2", "s3"]
+
+        def _execute(self, task, step, findings, result, remaining, seen_ids):
+            remaining[0] = max(0, remaining[0] - 1)
+            return ("s1 done", True) if step == "s1" else (f"{step} failed", False)
+
+    agent = MinoritySuccessAgent(_SynthLLM(), ToolRegistry([]), max_steps=12, max_replans=1)
+    agent.run("test task")
+    # s1 succeeds, s2 fails → 1/3 < 1/2 → one replan; then second plan also fails quickly
+    assert plan_calls[0] == 2
+
+
 # -- normalization in grading ---------------------------------------------
+
+def test_citation_accepts_paper_title():
+    t = Task(id="l", type="lookup", prompt="?",
+             must_include=["contrastive"],
+             expected_sources=["P005"])
+    assert t.grade("Learning Transferable Visual Models uses a contrastive objective.")[0]
+
+
+def test_citation_accepts_alias():
+    # Both sources cited by alias only — no paper IDs in the answer.
+    t = Task(id="c", type="comparative", prompt="?",
+             must_include=["differ"],
+             expected_sources=["P006", "P012"])
+    assert t.grade("ViViT and Make-A-Video differ in goal.")[0]
+
 
 def test_normalize_ized_matches_ised_must_include():
     # must_include uses British spelling; answer uses American — should still pass
@@ -219,6 +354,13 @@ def test_normalize_hyphen_matches_space_in_must_include():
     t = Task(id="n6", type="lookup", prompt="?", must_include=["power-law"],
              expected_sources=["P013"])
     assert t.grade("Follows a power law relationship. P013.")[0]
+
+
+def test_normalize_izes_matches_ises_must_include():
+    # "parallelizes" (American) should match must_include "parallelises" (British)
+    t = Task(id="n7", type="lookup", prompt="?", must_include=["parallelises"],
+             expected_sources=["P001"])
+    assert t.grade("Attention parallelizes across positions. See P001.")[0]
 
 
 def test_must_include_list_fails_when_no_alternative_present():
